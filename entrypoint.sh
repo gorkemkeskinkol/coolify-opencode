@@ -10,44 +10,84 @@ if [ -n "${SSH_PRIVATE_KEY:-}" ]; then
 
     KEY_FILE="${HOME}/.ssh/id_ed25519"
 
+    # Normalize a possibly mangled PEM env value into a clean on-disk file.
+    # Handles: literal "\n", stripped newlines (single-line "PEM"), CRLF,
+    # missing trailing newline. Body is rebuilt at 70-char lines per OpenSSH.
+    write_pem() {
+        local src="$1" out="$2"
+        local raw hdr ftr body
+        raw=$(printf '%s' "$src" | sed 's/\\n/\
+/g' | tr -d '\r')
+        hdr=$(printf '%s' "$raw" | grep -oE -- '-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----' | head -1)
+        ftr=$(printf '%s' "$raw" | grep -oE -- '-----END [A-Z0-9 ]*PRIVATE KEY-----' | head -1)
+        if [ -z "$hdr" ] || [ -z "$ftr" ]; then
+            return 1
+        fi
+        body=$(printf '%s' "$raw" \
+            | sed -E "s/-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----//" \
+            | sed -E "s/-----END [A-Z0-9 ]*PRIVATE KEY-----//" \
+            | tr -d '[:space:]')
+        {
+            printf '%s\n' "$hdr"
+            printf '%s' "$body" | fold -w 70
+            printf '\n%s\n' "$ftr"
+        } > "$out"
+    }
+
+    # Try PEM, then base64. Whichever yields a cryptographically valid
+    # private key (verified via ssh-keygen -l) wins.
     write_key() {
         local src="$1" out="$2"
-        local first_line
-        first_line=$(printf '%s' "$src" | head -n 1 | tr -d '\r')
-        if printf '%s' "$first_line" | grep -q -- "-----BEGIN"; then
-            printf '%s' "$src" > "$out"
-            printf '\n' >> "$out"
-        else
-            if ! printf '%s' "$src" | base64 -d > "$out" 2>/tmp/base64_err; then
-                echo "[entrypoint] FATAL: SSH_PRIVATE_KEY base64 decode failed:" >&2
-                cat /tmp/base64_err >&2
-                exit 1
+        local pem_ok=0 b64_ok=0 pem_out b64_out
+
+        pem_out=$(mktemp); b64_out=$(mktemp)
+        if write_pem "$src" "$pem_out" 2>/dev/null; then
+            chmod 600 "$pem_out"
+            if ssh-keygen -l -f "$pem_out" >/dev/null 2>&1; then
+                pem_ok=1
             fi
         fi
-        if ! head -n 1 "$out" | grep -q -- "-----BEGIN"; then
-            echo "[entrypoint] FATAL: key file does not start with a PEM header" >&2
-            echo "             first 200 bytes:" >&2
-            head -c 200 "$out" >&2; echo >&2
-            echo >&2
-            echo "             SSH_PRIVATE_KEY was treated as:" >&2
-            if printf '%s' "$first_line" | grep -q -- "-----BEGIN"; then
-                echo "               PEM (but file does not look like PEM?)" >&2
-            else
-                echo "               base64 (decoded result is not PEM)" >&2
+        if printf '%s' "$src" | base64 -d > "$b64_out" 2>/dev/null; then
+            # OpenSSH PEM parser requires a trailing newline after the
+            # END marker; base64 -d does not add one. Doubling is harmless.
+            printf '\n' >> "$b64_out"
+            chmod 600 "$b64_out"
+            if ssh-keygen -l -f "$b64_out" >/dev/null 2>&1; then
+                b64_ok=1
             fi
-            echo "             Provide either:" >&2
-            echo "               - SSH_PRIVATE_KEY_B64=\$(base64 -w0 < keyfile)" >&2
-            echo "               - SSH_PRIVATE_KEY=\$(cat keyfile)   (PEM, multiline)" >&2
+        fi
+
+        if [ "$pem_ok" = "1" ]; then
+            echo "[entrypoint] decoded as PEM (with newline-repair if needed)" >&2
+            cp "$pem_out" "$out"
+        elif [ "$b64_ok" = "1" ]; then
+            echo "[entrypoint] decoded as base64" >&2
+            cp "$b64_out" "$out"
+        else
+            echo "[entrypoint] FATAL: SSH_PRIVATE_KEY is neither a valid PEM nor valid base64" >&2
+            echo "             first 200 bytes of the env value:" >&2
+            printf '%s' "$src" | head -c 200 >&2; echo >&2
+            echo "             (PEM repair and base64 decode both failed.)" >&2
+            rm -f "$pem_out" "$b64_out"
             exit 1
         fi
+        rm -f "$pem_out" "$b64_out"
     }
 
     if [ -n "${SSH_PRIVATE_KEY_B64:-}" ]; then
         echo "[entrypoint] decoding SSH_PRIVATE_KEY_B64 -> ${KEY_FILE}"
-        printf '%s' "${SSH_PRIVATE_KEY_B64}" | base64 -d > "${KEY_FILE}" || {
-            echo "[entrypoint] FATAL: SSH_PRIVATE_KEY_B64 base64 decode failed" >&2
+        if ! printf '%s' "${SSH_PRIVATE_KEY_B64}" | base64 -d > "${KEY_FILE}" 2>/tmp/base64_err; then
+            echo "[entrypoint] FATAL: SSH_PRIVATE_KEY_B64 base64 decode failed:" >&2
+            cat /tmp/base64_err >&2
             exit 1
-        }
+        fi
+        printf '\n' >> "${KEY_FILE}"  # PEM trailing newline (see write_key)
+        chmod 600 "${KEY_FILE}"
+        if ! ssh-keygen -l -f "${KEY_FILE}" >/dev/null 2>&1; then
+            echo "[entrypoint] FATAL: SSH_PRIVATE_KEY_B64 is valid base64 but not a valid SSH key" >&2
+            head -c 200 "${KEY_FILE}" >&2; echo >&2
+            exit 1
+        fi
     else
         write_key "${SSH_PRIVATE_KEY}" "${KEY_FILE}"
     fi

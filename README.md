@@ -24,7 +24,7 @@ Coolify tarafı otomatik olarak `PORT` env'ini inject eder; servisi `0.0.0.0:$PO
 
 | Değişken | Zorunlu | Açıklama |
 |---|---|---|
-| `SSH_PRIVATE_KEY` | evet* | GitHub deploy SSH key. `-----BEGIN` ile başlıyorsa PEM, başka türlü base64 olarak algılanır. `*` = key yoksa ssh-agent kurulmaz, sadece web server ayağa kalkar |
+| `SSH_PRIVATE_KEY` | evet* | GitHub deploy SSH key. `-----BEGIN` ile başlıyorsa PEM olarak onarılır (newline/whitespace düzeltmesi dahil), başka türlü base64 olarak decode edilir. `*` = key yoksa ssh-agent kurulmaz, sadece web server ayağa kalkar |
 | `SSH_PRIVATE_KEY_B64` | alternatif | Açıkça base64 olarak işaretlemek istersen (algılama yapmaz) |
 | `OPENROUTER_API_KEY` | evet | OpenCode'un OpenRouter üzerinden LLM çağırması için |
 | `OPENAI_API_KEY` | alternatif | OpenAI provider için |
@@ -35,23 +35,24 @@ Coolify tarafı otomatik olarak `PORT` env'ini inject eder; servisi `0.0.0.0:$PO
 
 ### SSH Key'i Coolify'a koymak
 
-İki yol var, ikisi de aynı `SSH_PRIVATE_KEY` env değişkenine yazılır — entrypoint içerik `-----BEGIN` ile başlıyorsa PEM olarak, başlamıyorsa base64 olarak algılar:
+Üç yol var; PEM formatı multiline/bozuk olsa bile entrypoint onarır, base64 tek satır olduğu için en sağlam seçenektir.
 
-**Yol A — düz PEM (multiline):**
+**Yol A — düz PEM (multiline, önerilen):**
 ```bash
 # Coolify env editor'üne yapıştır
 cat ~/.ssh/id_ed25519
 ```
-> Son satır `-----END OPENSSH PRIVATE KEY-----` olmalı; sonrasında boş satır olmasa da entrypoint ekler.
+> Coolify PEM gövdesindeki iç newline'ları bozsa bile (`tr '\n' ' '`, literal `\n`, CRLF, eksik trailing newline gibi) entrypoint onarır: header/footer'ı ayıklar, gövdedeki tüm whitespace'i siler, OpenSSH standardı olan 70 karakterlik satırlara yeniden böler ve sonuna newline ekler. Sonra `ssh-keygen -l` ile kriptografik olarak doğrular.
 
-**Yol B — base64 (önerilen, newline sorununa dayanıklı):**
+**Yol B — base64 (en sağlam, tek satır):**
 ```bash
 base64 -w0 ~/.ssh/id_ed25519
 # çıkan tek satırlık string'i SSH_PRIVATE_KEY olarak yapıştır
 ```
+> Tek satır olduğu için Coolify bunu bozamaz. PEM yolu onarımına gerek kalmaz, doğrudan decode + `ssh-keygen -l` doğrulaması.
 
 **Yol C — explicit base64 değişkeni (`SSH_PRIVATE_KEY_B64`):**
-Base64 kullanmak istiyorsan ama `SSH_PRIVATE_KEY`'i meşgul etmek istemiyorsan. Açıkça base64 olarak işaretlenir, algılama yapılmaz.
+Base64 kullanmak istiyorsan ama `SSH_PRIVATE_KEY`'i başka amaçla meşgul etmek istemiyorsan. Açıkça base64 olarak işaretlenir, algılama yapılmaz.
 
 Yol A veya B kullanıyorsan yalnız `SSH_PRIVATE_KEY` yeterli; üçünü birden set etme.
 
@@ -102,7 +103,7 @@ docker run --rm -p 3000:3000 \
 - **Base:** `node:22-slim` (glibc, opencode native binary için)
 - **OpenCode:** resmi installer ile kurulu, sürüm `Dockerfile` içinde pinli (`ARG OPENCODE_VERSION`)
 - **Entrypoint:** `entrypoint.sh`
-  1. `SSH_PRIVATE_KEY` (veya `SSH_PRIVATE_KEY_B64`) varsa algılama yaparak diske yazar: içerik `-----BEGIN` ile başlıyorsa PEM olarak, değilse base64 decode dener. Sonra sonucun PEM header'ıyla başladığını doğrular
+  1. `SSH_PRIVATE_KEY` (veya `SSH_PRIVATE_KEY_B64`) varsa akıllı decode: PEM ise onarım yapar (literal `\n` çevir, header/footer'ı ayıkla, whitespace'i sil, 70'li satırlara böl, trailing newline ekle), base64 ise decode + trailing newline ekle. `ssh-keygen -l` ile kriptografik geçerlilik doğrulanır; hangi yol geçerli key verdiyse o kullanılır
   2. `ssh-keyscan github.com` ile host doğrulamayı önceden yapar
   3. `git config --global` ayarlar
   4. `exec opencode serve --hostname 0.0.0.0 --port "$PORT"` ile süreci devralır
