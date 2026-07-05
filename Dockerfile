@@ -20,4 +20,8 @@ RUN chmod +x /entrypoint.sh
 
 EXPOSE 3000
 
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+    CMD PORT=$(cat /root/.opencode_port 2>/dev/null || echo 3000); \
+        curl -fsS "http://127.0.0.1:${PORT}/global/health" || exit 1
+
 ENTRYPOINT ["/entrypoint.sh"]

@@ -12,7 +12,11 @@ OpenCode'u Coolify üzerinde headless web servisi olarak çalıştıran, GitHub'
 |---|---|
 | Build Pack | `Dockerfile` |
 | Port | `3000` (veya Coolify'ın atadığı `PORT`) |
-| Healthcheck path | `/` |
+| Healthcheck Path | `/global/health` |
+| Healthcheck Method | `GET` |
+| Healthcheck Interval | `30s` |
+| Healthcheck Timeout | `5s` |
+| Healthcheck Start Period | `15s` |
 
 Coolify tarafı otomatik olarak `PORT` env'ini inject eder; servisi `0.0.0.0:$PORT` üzerinde dinler.
 
@@ -91,3 +95,4 @@ docker run --rm -p 3000:3000 \
   2. `ssh-keyscan github.com` ile host doğrulamayı önceden yapar
   3. `git config --global` ayarlar
   4. `exec opencode serve --hostname 0.0.0.0 --port "$PORT"` ile süreci devralır
+- **Healthcheck:** `HEALTHCHECK` direktifi `/global/health`'a `curl --fail` atar. Port `entrypoint.sh` tarafından `/root/.opencode_port`'a yazılır, böylece Coolify farklı `PORT` inject etse bile doğru port probe edilir. Coolify UI'da `Healthcheck Path = /global/health` ayarlanmalı.

@@ -46,6 +46,7 @@ else
 fi
 
 PORT="${PORT:-3000}"
+echo "${PORT}" > "${HOME}/.opencode_port"
 echo "[entrypoint] starting opencode serve on 0.0.0.0:${PORT}"
 
 exec opencode serve --hostname 0.0.0.0 --port "${PORT}"
