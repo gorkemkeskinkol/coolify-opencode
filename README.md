@@ -24,8 +24,8 @@ Coolify tarafı otomatik olarak `PORT` env'ini inject eder; servisi `0.0.0.0:$PO
 
 | Değişken | Zorunlu | Açıklama |
 |---|---|---|
-| `SSH_PRIVATE_KEY_B64` | evet* | GitHub deploy SSH key, **base64** encode edilmiş. `*` = key yoksa ssh-agent kurulmaz, sadece web server ayağa kalkar |
-| `SSH_PRIVATE_KEY` | alternatif | Base64 yerine düz PEM (multiline). PEM trailer newline'ı korunmalı, garanti değilse base64 tercih et |
+| `SSH_PRIVATE_KEY` | evet* | GitHub deploy SSH key. `-----BEGIN` ile başlıyorsa PEM, başka türlü base64 olarak algılanır. `*` = key yoksa ssh-agent kurulmaz, sadece web server ayağa kalkar |
+| `SSH_PRIVATE_KEY_B64` | alternatif | Açıkça base64 olarak işaretlemek istersen (algılama yapmaz) |
 | `OPENROUTER_API_KEY` | evet | OpenCode'un OpenRouter üzerinden LLM çağırması için |
 | `OPENAI_API_KEY` | alternatif | OpenAI provider için |
 | `ANTHROPIC_API_KEY` | alternatif | Anthropic provider için |
@@ -35,14 +35,25 @@ Coolify tarafı otomatik olarak `PORT` env'ini inject eder; servisi `0.0.0.0:$PO
 
 ### SSH Key'i Coolify'a koymak
 
-Base64 tavsiye edilir (Coolify multiline env'de sondaki newline'ı yiyor, bu da OpenSSH PEM parser'ı bozarak `Error loading key ... error in libcrypto` hatasına yol açar):
+İki yol var, ikisi de aynı `SSH_PRIVATE_KEY` env değişkenine yazılır — entrypoint içerik `-----BEGIN` ile başlıyorsa PEM olarak, başlamıyorsa base64 olarak algılar:
 
+**Yol A — düz PEM (multiline):**
 ```bash
-base64 -w0 ~/.ssh/id_ed25519 > /tmp/key.b64
-# bu tek satırlık base64 string'i SSH_PRIVATE_KEY_B64 olarak yapıştır
+# Coolify env editor'üne yapıştır
+cat ~/.ssh/id_ed25519
+```
+> Son satır `-----END OPENSSH PRIVATE KEY-----` olmalı; sonrasında boş satır olmasa da entrypoint ekler.
+
+**Yol B — base64 (önerilen, newline sorununa dayanıklı):**
+```bash
+base64 -w0 ~/.ssh/id_ed25519
+# çıkan tek satırlık string'i SSH_PRIVATE_KEY olarak yapıştır
 ```
 
-`SSH_PRIVATE_KEY` (düz PEM) kullanırsan son satır mutlaka `-----END OPENSSH PRIVATE KEY-----` olmalı ve ondan sonra bir boş satır olmalı. Yine de base64 daha güvenilir.
+**Yol C — explicit base64 değişkeni (`SSH_PRIVATE_KEY_B64`):**
+Base64 kullanmak istiyorsan ama `SSH_PRIVATE_KEY`'i meşgul etmek istemiyorsan. Açıkça base64 olarak işaretlenir, algılama yapılmaz.
+
+Yol A veya B kullanıyorsan yalnız `SSH_PRIVATE_KEY` yeterli; üçünü birden set etme.
 
 ## Cloudflare Tunnel
 
@@ -91,7 +102,7 @@ docker run --rm -p 3000:3000 \
 - **Base:** `node:22-slim` (glibc, opencode native binary için)
 - **OpenCode:** resmi installer ile kurulu, sürüm `Dockerfile` içinde pinli (`ARG OPENCODE_VERSION`)
 - **Entrypoint:** `entrypoint.sh`
-  1. `SSH_PRIVATE_KEY` varsa `~/.ssh/id_ed25519`'e yazar, `ssh-agent` başlatır, key'i ekler
+  1. `SSH_PRIVATE_KEY` (veya `SSH_PRIVATE_KEY_B64`) varsa algılama yaparak diske yazar: içerik `-----BEGIN` ile başlıyorsa PEM olarak, değilse base64 decode dener. Sonra sonucun PEM header'ıyla başladığını doğrular
   2. `ssh-keyscan github.com` ile host doğrulamayı önceden yapar
   3. `git config --global` ayarlar
   4. `exec opencode serve --hostname 0.0.0.0 --port "$PORT"` ile süreci devralır
