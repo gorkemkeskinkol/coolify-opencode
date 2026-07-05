@@ -20,13 +20,25 @@ Coolify tarafı otomatik olarak `PORT` env'ini inject eder; servisi `0.0.0.0:$PO
 
 | Değişken | Zorunlu | Açıklama |
 |---|---|---|
-| `SSH_PRIVATE_KEY` | evet* | GitHub'a deploy yetkisi olan SSH private key (multiline). `*` = key yoksa ssh-agent kurulmaz, sadece web server ayağa kalkar |
+| `SSH_PRIVATE_KEY_B64` | evet* | GitHub deploy SSH key, **base64** encode edilmiş. `*` = key yoksa ssh-agent kurulmaz, sadece web server ayağa kalkar |
+| `SSH_PRIVATE_KEY` | alternatif | Base64 yerine düz PEM (multiline). PEM trailer newline'ı korunmalı, garanti değilse base64 tercih et |
 | `OPENROUTER_API_KEY` | evet | OpenCode'un OpenRouter üzerinden LLM çağırması için |
 | `OPENAI_API_KEY` | alternatif | OpenAI provider için |
 | `ANTHROPIC_API_KEY` | alternatif | Anthropic provider için |
 | `GIT_USER_NAME` | hayır | git commit'lerde görünecek isim (default: `opencode`) |
 | `GIT_USER_EMAIL` | hayır | git commit'lerde görünecek e-posta (default: `opencode@localhost`) |
 | `PORT` | hayır | Coolify inject eder; default 3000 |
+
+### SSH Key'i Coolify'a koymak
+
+Base64 tavsiye edilir (Coolify multiline env'de sondaki newline'ı yiyor, bu da OpenSSH PEM parser'ı bozarak `Error loading key ... error in libcrypto` hatasına yol açar):
+
+```bash
+base64 -w0 ~/.ssh/id_ed25519 > /tmp/key.b64
+# bu tek satırlık base64 string'i SSH_PRIVATE_KEY_B64 olarak yapıştır
+```
+
+`SSH_PRIVATE_KEY` (düz PEM) kullanırsan son satır mutlaka `-----END OPENSSH PRIVATE KEY-----` olmalı ve ondan sonra bir boş satır olmalı. Yine de base64 daha güvenilir.
 
 ## Cloudflare Tunnel
 

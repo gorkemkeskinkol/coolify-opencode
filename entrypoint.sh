@@ -8,8 +8,15 @@ if [ -n "${SSH_PRIVATE_KEY:-}" ]; then
     mkdir -p "${HOME}/.ssh"
     chmod 700 "${HOME}/.ssh"
 
-    printf '%s\n' "${SSH_PRIVATE_KEY}" > "${HOME}/.ssh/id_ed25519"
-    chmod 600 "${HOME}/.ssh/id_ed25519"
+    KEY_FILE="${HOME}/.ssh/id_ed25519"
+
+    if [ -n "${SSH_PRIVATE_KEY_B64:-}" ]; then
+        echo "[entrypoint] decoding SSH_PRIVATE_KEY_B64 -> ${KEY_FILE}"
+        echo "${SSH_PRIVATE_KEY_B64}" | base64 -d > "${KEY_FILE}"
+    else
+        printf '%s\n' "${SSH_PRIVATE_KEY}" > "${KEY_FILE}"
+    fi
+    chmod 600 "${KEY_FILE}"
 
     if ! grep -q "github.com" "${HOME}/.ssh/known_hosts" 2>/dev/null; then
         ssh-keyscan -t rsa,ecdsa,ed25519 github.com >> "${HOME}/.ssh/known_hosts" 2>/dev/null || true
@@ -17,7 +24,13 @@ if [ -n "${SSH_PRIVATE_KEY:-}" ]; then
     chmod 644 "${HOME}/.ssh/known_hosts"
 
     eval "$(ssh-agent -s)" >/dev/null
-    ssh-add "${HOME}/.ssh/id_ed25519"
+    if ! ssh-add "${KEY_FILE}"; then
+        echo "[entrypoint] FATAL: ssh-add failed; first/last 200 bytes of key file:" >&2
+        head -c 200 "${KEY_FILE}" >&2; echo >&2
+        echo "---" >&2
+        tail -c 200 "${KEY_FILE}" >&2; echo >&2
+        exit 1
+    fi
 
     cat > "${HOME}/.gitconfig" <<EOF
 [user]
