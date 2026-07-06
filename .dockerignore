@@ -1,6 +1,7 @@
 .git
 .gitignore
 *.md
+!AGENTS.md
 .DS_Store
 .idea
 .vscode
