@@ -13,10 +13,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN curl -fsSL https://opencode.ai/install | bash -s -- --version ${OPENCODE_VERSION} --no-modify-path \
     && ln -sf /root/.opencode/bin/opencode /usr/local/bin/opencode
 
-WORKDIR /workspace
+WORKDIR /projects
 
-COPY entrypoint.sh /entrypoint.sh
+COPY opencode.jsonc /opt/opencode-seed/opencode.jsonc
+COPY AGENTS.md      /opt/opencode-seed/AGENTS.md
+COPY entrypoint.sh  /entrypoint.sh
 RUN chmod +x /entrypoint.sh
+
+VOLUME ["/projects", "/opencode"]
 
 EXPOSE 3000
 

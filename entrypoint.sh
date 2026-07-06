@@ -1,6 +1,34 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# --- Persistent layout ------------------------------------------------------
+# /projects : user projects (WORKDIR, opencode edits go here)
+# /opencode : opencode session DB, snapshots, repos, config
+# Anything outside these paths is ephemeral and rebuilt on every container start.
+export XDG_DATA_HOME="${XDG_DATA_HOME:-/opencode/data}"
+export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-/opencode/config}"
+export XDG_STATE_HOME="${XDG_STATE_HOME:-/opencode/state}"
+export XDG_CACHE_HOME="${XDG_CACHE_HOME:-/opencode/cache}"
+
+mkdir -p /projects
+mkdir -p /opencode/data/opencode /opencode/config/opencode /opencode/state /opencode/cache
+
+# Seed global config on first boot. If the user has already edited the
+# file in the volume, do NOT overwrite (cp -n is idempotent).
+SEED_DIR="/opt/opencode-seed"
+for f in opencode.jsonc AGENTS.md; do
+    if [ -f "${SEED_DIR}/${f}" ] && [ ! -f "/opencode/config/opencode/${f}" ]; then
+        cp -n "${SEED_DIR}/${f}" "/opencode/config/opencode/${f}"
+        echo "[entrypoint] seeded /opencode/config/opencode/${f}"
+    fi
+done
+
+if [ -n "${OPENROUTER_API_KEY:-}" ]; then
+    echo "[entrypoint] OPENROUTER_API_KEY is set (auth handled via env, no auth.json needed)"
+else
+    echo "[entrypoint] WARNING: OPENROUTER_API_KEY is not set; LLM calls will fail until it is provided" >&2
+fi
+
 echo "[entrypoint] starting opencode container"
 
 if [ -n "${SSH_PRIVATE_KEY:-}" ]; then
@@ -125,5 +153,7 @@ fi
 PORT="${PORT:-3000}"
 echo "${PORT}" > "${HOME}/.opencode_port"
 echo "[entrypoint] starting opencode serve on 0.0.0.0:${PORT}"
+
+cd /projects
 
 exec opencode serve --hostname 0.0.0.0 --port "${PORT}"
